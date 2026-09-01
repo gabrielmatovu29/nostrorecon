@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Matching{% endblock %}
+
+{% block content %}
+<h1>Nostro Reconciliation Matching</h1>
+
+<h2>Auto Matches</h2>
+<table>
+  {% for nostro, ledger in auto_matches %}
+    <tr>
+      <td>{{ nostro.Amount }}</td>
+      <td>{{ nostro.Type }}</td>
+      <td>{{ ledger.Amount }}</td>
+      <td>{{ ledger.Type }}</td>
+    </tr>
+  {% endfor %}
+</table>
+
+<h2>Review Matches</h2>
+{% for nostro, candidates in review_matches %}
+  <p>Nostro entry: {{ nostro.Amount }} ({{ nostro.Type }})</p>
+  <form method="post">
+    {% csrf_token %}
+    {% for _, ledger in candidates.iterrows %}
+      <input type="radio" name="match_{{ nostro.id }}" value="{{ ledger.id }}">
+      {{ ledger.Amount }} ({{ ledger.Type }}) on {{ ledger.Date }}<br>
+    {% endfor %}
+    <button type="submit">Match Selected</button>
+  </form>
+{% endfor %}
+
+<h2>Unmatched</h2>
+{% for nostro in unmatched %}
+  <p>{{ nostro.Amount }} ({{ nostro.Type }})</p>
+  <form method="post">
+    {% csrf_token %}
+    <input type="text" name="comment_{{ nostro.id }}" placeholder="Reason for unmatched">
+    <button type="submit">Save Comment</button>
+  </form>
+{% endfor %}
+{% endblock %}

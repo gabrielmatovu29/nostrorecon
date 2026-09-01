@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>Matched Items</h2>
+<div class="scroll-table">
+  <table>
+    <thead>
+      <tr>
+        <th>Nostro ID</th>
+        <th>Ledger ID</th>
+        <th>Match ID</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in matched_items %}
+      <tr>
+        <td>{{ item.nostro_id }}</td>
+        <td>{{ item.ledger_id }}</td>
+        <td>{{ item.matching_id }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<a href="{% url 'download_matched' %}" class="btn">Download Excel</a>
+
+
+<h2>Review Matches</h2>
+<div class="scroll-table">
+  <table>
+    <thead>
+      <tr>
+        <th>Nostro ID</th>
+        <th>Amount</th>
+        <th>Currency</th>
+        <th>Value Date</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in review_matches %}
+      <tr>
+        <td>{{ item.nostro_id }}</td>
+        <td>{{ item.amount }}</td>
+        <td>{{ item.currency }}</td>
+        <td>{{ item.value_date }}</td>
+        <td>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="nostro_index" value="{{ item.nostro_index }}">
+            <select name="ledger_index">
+              {% for match in item.possible_matches %}
+              <option value="{{ match.ledger_index }}">
+                Ledger {{ match.ledger_id }} | {{ match.amount }} {{ match.currency }} | {{ match.value_date }}
+              </option>
+              {% endfor %}
+            </select>
+            <button type="submit" name="complete_match">Complete Match</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<a href="{% url 'download_review' %}" class="btn">Download Excel</a>
+
+
+<h2>Unmatched Items</h2>
+<div class="scroll-table">
+  <table>
+    <thead>
+      <tr>
+        <th>Nostro ID</th>
+        <th>Amount</th>
+        <th>Currency</th>
+        <th>Value Date</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in unmatched %}
+      <tr>
+        <td>{{ item.nostro_id }}</td>
+        <td>{{ item.amount }}</td>
+        <td>{{ item.currency }}</td>
+        <td>{{ item.value_date }}</td>
+        <td>{{ item.status }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<a href="{% url 'download_unmatched' %}" class="btn">Download Excel</a>
+
+{% endblock %}

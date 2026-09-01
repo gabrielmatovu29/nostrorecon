@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Nostro Statement{% endblock %}
+
+{% block content %}
+<h1>Nostro Statement Entries</h1>
+<style>
+    table {
+        border-collapse: collapse;
+        width: 90%;
+    }
+    th, td {
+        border: 1px solid #ddd;
+        padding: 8px;
+    }
+    th {
+        background-color: #f4f4f4;
+    }
+</style>
+
+<table>
+    <thead>
+        <tr>
+            {% for col in columns %}
+                <th>{{ col }}</th>
+            {% endfor %}
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in data %}
+            <tr>
+                {% for value in row %}
+                    <td>{{ value }}</td>
+                {% endfor %}
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+<p>Total Nostro entries: {{ nostro_count }}</p>
+<p>Total Ledger entries: {{ ledger_count }}</p>
+
+<h2>Entries Overview</h2>
+<img src="data:image/png;base64,{{ chart }}" alt="Bar chart">
+{% endblock %}
