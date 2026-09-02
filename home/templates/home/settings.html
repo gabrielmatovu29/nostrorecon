@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}
+Settings | Nostro Recon
+{% endblock %}
+
+
+{% block content %}
+
+<div class="page-header">
+
+    <div>
+
+        <h1>System Settings</h1>
+
+        <p>
+            Nostro reconciliation system configuration.
+        </p>
+
+    </div>
+
+</div>
+
+
+<div class="card">
+
+    <h2 class="card-title">
+        Data Sources
+    </h2>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Nostro Source
+        </span>
+
+        <span class="setting-value">
+            {{ nostro_file }}
+        </span>
+
+    </div>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Ledger Source
+        </span>
+
+        <span class="setting-value">
+            {{ ledger_file }}
+        </span>
+
+    </div>
+
+</div>
+
+
+<div class="card">
+
+    <h2 class="card-title">
+        Matching Thresholds
+    </h2>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Auto Match
+        </span>
+
+        <span class="setting-value">
+
+            {{ auto_threshold }}%
+
+        </span>
+
+    </div>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Manual Review
+        </span>
+
+        <span class="setting-value">
+
+            {{ review_threshold }}%
+
+        </span>
+
+    </div>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Candidate Minimum
+        </span>
+
+        <span class="setting-value">
+
+            {{ candidate_threshold }}%
+
+        </span>
+
+    </div>
+
+</div>
+
+
+<div class="card">
+
+    <h2 class="card-title">
+        Matching Weights
+    </h2>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Amount
+        </span>
+
+        <span class="setting-value">
+            40%
+        </span>
+
+    </div>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Debit / Credit Direction
+        </span>
+
+        <span class="setting-value">
+            15%
+        </span>
+
+    </div>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Reference
+        </span>
+
+        <span class="setting-value">
+            20%
+        </span>
+
+    </div>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Value Date
+        </span>
+
+        <span class="setting-value">
+            10%
+        </span>
+
+    </div>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Counterparty / Description
+        </span>
+
+        <span class="setting-value">
+            10%
+        </span>
+
+    </div>
+
+
+    <div class="setting-row">
+
+        <span class="setting-label">
+            Transaction Context
+        </span>
+
+        <span class="setting-value">
+            5%
+        </span>
+
+    </div>
+
+</div>
+
+
+{% endblock %}

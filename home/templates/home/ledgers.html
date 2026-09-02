@@ -1,25 +1,82 @@
-{% extends "base.html" %}
+{% extends "home/base.html" %}
 
-{% block title %}Ledger Entries{% endblock %}
+{% block title %}
+Ledgers
+{% endblock %}
 
 {% block content %}
-<h1>Ledger Entries</h1>
+
+<h1>Ledger Transactions</h1>
+
+<div class="scroll-table">
+
 <table>
-    <thead>
-        <tr>
-            {% for col in columns %}
-                <th>{{ col }}</th>
-            {% endfor %}
-        </tr>
-    </thead>
-    <tbody>
-        {% for row in data %}
-            <tr>
-                {% for value in row %}
-                    <td>{{ value }}</td>
-                {% endfor %}
-            </tr>
-        {% endfor %}
-    </tbody>
+
+<thead>
+
+<tr>
+
+    <th>Ledger ID</th>
+    <th>Account</th>
+    <th>Operating Date</th>
+    <th>Value Date</th>
+    <th>Reference</th>
+    <th>Description</th>
+    <th>Debit</th>
+    <th>Credit</th>
+    <th>Related Reference</th>
+
+</tr>
+
+</thead>
+
+
+<tbody>
+
+{% for ledger in ledgers %}
+
+<tr>
+
+    <td>{{ ledger.ledger_id }}</td>
+
+    <td>{{ ledger.account }}</td>
+
+    <td>
+        {{ ledger.operating_date|date:"d-M-Y" }}
+    </td>
+
+    <td>
+        {{ ledger.value_date|date:"d-M-Y" }}
+    </td>
+
+    <td>{{ ledger.reference }}</td>
+
+    <td>{{ ledger.description }}</td>
+
+    <td>{{ ledger.debit }}</td>
+
+    <td>{{ ledger.credit }}</td>
+
+    <td>{{ ledger.rel_ref }}</td>
+
+</tr>
+
+{% empty %}
+
+<tr>
+
+    <td colspan="9">
+        No ledger transactions found.
+    </td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
 </table>
+
+</div>
+
 {% endblock %}

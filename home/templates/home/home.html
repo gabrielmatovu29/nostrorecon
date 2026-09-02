@@ -1,12 +1,131 @@
-{% extends "base.html" %}
+{% extends "home/base.html" %}
 
-{% block title %}Home{% endblock %}
+{% block title %}
+Dashboard
+{% endblock %}
 
 {% block content %}
-<h1>Dashboard</h1>
-<p>Total Nostro entries: {{ nostro_count }}</p>
-<p>Total Ledger entries: {{ ledger_count }}</p>
 
-<h2>Entries Overview</h2>
-<img src="data:image/png;base64,{{ chart }}" alt="Bar chart">
+<h1>Nostro Reconciliation Dashboard</h1>
+
+<div class="card-container">
+
+    <div class="card">
+
+        <h3>Nostro Transactions</h3>
+
+        <div class="card-value">
+            {{ nostro_count }}
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <h3>Ledger Transactions</h3>
+
+        <div class="card-value">
+            {{ ledger_count }}
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <h3>Matched</h3>
+
+        <div class="card-value">
+            {{ matched_count }}
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <h3>Manual Review</h3>
+
+        <div class="card-value">
+            {{ review_count }}
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <h3>Unmatched</h3>
+
+        <div class="card-value">
+            {{ unmatched_count }}
+        </div>
+
+    </div>
+
+</div>
+
+
+<h2>Reconciliation Summary</h2>
+
+<div class="table-container">
+
+    <table>
+
+        <thead>
+
+            <tr>
+                <th>Status</th>
+                <th>Count</th>
+            </tr>
+
+        </thead>
+
+        <tbody>
+
+            <tr>
+                <td>
+                    <span class="badge badge-success">
+                        Matched
+                    </span>
+                </td>
+
+                <td>
+                    {{ matched_count }}
+                </td>
+            </tr>
+
+
+            <tr>
+                <td>
+                    <span class="badge badge-warning">
+                        Manual Review
+                    </span>
+                </td>
+
+                <td>
+                    {{ review_count }}
+                </td>
+            </tr>
+
+
+            <tr>
+                <td>
+                    <span class="badge badge-danger">
+                        Unmatched
+                    </span>
+                </td>
+
+                <td>
+                    {{ unmatched_count }}
+                </td>
+            </tr>
+
+        </tbody>
+
+    </table>
+
+</div>
+
 {% endblock %}

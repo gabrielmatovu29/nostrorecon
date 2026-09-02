@@ -1,96 +1,318 @@
-{% extends "base.html" %}
+{% extends "home/base.html" %}
+
+{% block title %}
+Matching
+{% endblock %}
+
 {% block content %}
 
-<h2>Matched Items</h2>
-<div class="scroll-table">
-  <table>
-    <thead>
-      <tr>
-        <th>Nostro ID</th>
-        <th>Ledger ID</th>
-        <th>Match ID</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in matched_items %}
-      <tr>
-        <td>{{ item.nostro_id }}</td>
-        <td>{{ item.ledger_id }}</td>
-        <td>{{ item.matching_id }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-<a href="{% url 'download_matched' %}" class="btn">Download Excel</a>
+<h1>Nostro Reconciliation Matching</h1>
 
+
+<!-- =========================
+     MATCHED
+     ========================= -->
+
+<h2>Matched Items</h2>
+
+<div class="scroll-table">
+
+<table>
+
+<thead>
+
+<tr>
+
+    <th>Nostro ID</th>
+    <th>Ledger ID</th>
+    <th>Match ID</th>
+    <th>Score</th>
+    <th>Reason</th>
+
+</tr>
+
+</thead>
+
+
+<tbody>
+
+{% for item in matched_items %}
+
+<tr>
+
+    <td>{{ item.nostro_id }}</td>
+
+    <td>{{ item.ledger_id }}</td>
+
+    <td>{{ item.matching_id }}</td>
+
+    <td>
+        {% if item.score %}
+            {{ item.score }}%
+        {% else %}
+            -
+        {% endif %}
+    </td>
+
+    <td>{{ item.reason }}</td>
+
+</tr>
+
+{% empty %}
+
+<tr>
+
+    <td colspan="5">
+        No matched items.
+    </td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+</div>
+
+
+<a href="{% url 'download_matched' %}"
+   class="btn btn-success">
+
+    Download Matched
+
+</a>
+
+
+<!-- =========================
+     REVIEW
+     ========================= -->
 
 <h2>Review Matches</h2>
-<div class="scroll-table">
-  <table>
-    <thead>
-      <tr>
-        <th>Nostro ID</th>
-        <th>Amount</th>
-        <th>Currency</th>
-        <th>Value Date</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in review_matches %}
-      <tr>
-        <td>{{ item.nostro_id }}</td>
-        <td>{{ item.amount }}</td>
-        <td>{{ item.currency }}</td>
-        <td>{{ item.value_date }}</td>
-        <td>
-          <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="nostro_index" value="{{ item.nostro_index }}">
-            <select name="ledger_index">
-              {% for match in item.possible_matches %}
-              <option value="{{ match.ledger_index }}">
-                Ledger {{ match.ledger_id }} | {{ match.amount }} {{ match.currency }} | {{ match.value_date }}
-              </option>
-              {% endfor %}
-            </select>
-            <button type="submit" name="complete_match">Complete Match</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-<a href="{% url 'download_review' %}" class="btn">Download Excel</a>
 
+<div class="scroll-table">
+
+<table>
+
+<thead>
+
+<tr>
+
+    <th>Nostro ID</th>
+    <th>Amount</th>
+    <th>Currency</th>
+    <th>Value Date</th>
+    <th>Ordering Party</th>
+    <th>Description / Reference</th>
+    <th>Possible Ledger Matches</th>
+
+</tr>
+
+</thead>
+
+
+<tbody>
+
+{% for item in review_matches %}
+
+<tr>
+
+    <td>
+        {{ item.nostro_id }}
+    </td>
+
+    <td>
+        {{ item.amount }}
+    </td>
+
+    <td>
+        {{ item.currency }}
+    </td>
+
+    <td>
+        {{ item.value_date|date:"d-M-Y" }}
+    </td>
+
+    <td>
+        {{ item.ordering_party }}
+    </td>
+
+    <td>
+        {{ item.description }}
+    </td>
+
+    <td>
+
+        <form method="post">
+
+            {% csrf_token %}
+
+            <input
+                type="hidden"
+                name="nostro_index"
+                value="{{ item.nostro_index }}"
+            >
+
+            <select
+                name="ledger_index"
+                required
+            >
+
+                <option value="">
+                    -- Select Ledger Match --
+                </option>
+
+                {% for match in item.possible_matches %}
+
+                <option value="{{ match.ledger_index }}">
+
+                    {{ match.ledger_id }}
+                    |
+                    {{ match.amount }}
+                    |
+                    {{ match.value_date|date:"d-M-Y" }}
+                    |
+                    Score: {{ match.score }}%
+                    |
+                    {{ match.description }}
+
+                </option>
+
+                {% endfor %}
+
+            </select>
+
+            <br><br>
+
+            <button
+                type="submit"
+                name="complete_match"
+                class="btn btn-warning"
+            >
+
+                Complete Match
+
+            </button>
+
+        </form>
+
+    </td>
+
+</tr>
+
+{% empty %}
+
+<tr>
+
+    <td colspan="7">
+
+        No transactions currently require manual review.
+
+    </td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+</div>
+
+
+<a href="{% url 'download_review' %}"
+   class="btn">
+
+    Download Review Matches
+
+</a>
+
+
+<!-- =========================
+     UNMATCHED
+     ========================= -->
 
 <h2>Unmatched Items</h2>
+
 <div class="scroll-table">
-  <table>
-    <thead>
-      <tr>
-        <th>Nostro ID</th>
-        <th>Amount</th>
-        <th>Currency</th>
-        <th>Value Date</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in unmatched %}
-      <tr>
-        <td>{{ item.nostro_id }}</td>
-        <td>{{ item.amount }}</td>
-        <td>{{ item.currency }}</td>
-        <td>{{ item.value_date }}</td>
-        <td>{{ item.status }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+
+<table>
+
+<thead>
+
+<tr>
+
+    <th>Nostro ID</th>
+    <th>Amount</th>
+    <th>Currency</th>
+    <th>Value Date</th>
+    <th>Ordering Party</th>
+    <th>Description</th>
+    <th>Status</th>
+
+</tr>
+
+</thead>
+
+
+<tbody>
+
+{% for item in unmatched %}
+
+<tr>
+
+    <td>{{ item.nostro_id }}</td>
+
+    <td>{{ item.amount }}</td>
+
+    <td>{{ item.currency }}</td>
+
+    <td>
+        {{ item.value_date|date:"d-M-Y" }}
+    </td>
+
+    <td>{{ item.ordering_party }}</td>
+
+    <td>{{ item.description }}</td>
+
+    <td>
+
+        <span class="badge badge-danger">
+
+            {{ item.status }}
+
+        </span>
+
+    </td>
+
+</tr>
+
+{% empty %}
+
+<tr>
+
+    <td colspan="7">
+        No unmatched transactions.
+    </td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
 </div>
-<a href="{% url 'download_unmatched' %}" class="btn">Download Excel</a>
+
+
+<a href="{% url 'download_unmatched' %}"
+   class="btn btn-danger">
+
+    Download Unmatched
+
+</a>
 
 {% endblock %}

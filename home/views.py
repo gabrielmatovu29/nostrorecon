@@ -1,242 +1,1714 @@
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
-import pandas as pd
 from django.conf import settings
-import uuid
-import io
 
-# Normalize headers
-def normalize(df):
-    df.columns = [str(c).strip().lower() for c in df.columns]
+import pandas as pd
+import io
+from difflib import SequenceMatcher
+
+
+# ============================================================
+# FILE LOCATIONS
+# ============================================================
+
+NOSTRO_FILE = settings.BASE_DIR / "data" / "nostros.xlsx"
+LEDGER_FILE = settings.BASE_DIR / "data" / "ledgers.xlsx"
+
+
+# ============================================================
+# SYSTEM SETTINGS
+# ============================================================
+
+AUTO_MATCH_THRESHOLD = 90
+REVIEW_THRESHOLD = 60
+CANDIDATE_THRESHOLD = 50
+
+AMOUNT_WEIGHT = 0.40
+DIRECTION_WEIGHT = 0.15
+REFERENCE_WEIGHT = 0.20
+DATE_WEIGHT = 0.10
+COUNTERPARTY_WEIGHT = 0.10
+CONTEXT_WEIGHT = 0.05
+
+
+# ============================================================
+# DATA LOADING
+# ============================================================
+
+def load_nostro_data():
+    """Load and clean Nostro statement data."""
+
+    df = pd.read_excel(NOSTRO_FILE)
+
+    if "value_date" in df.columns:
+        df["value_date"] = pd.to_datetime(
+            df["value_date"],
+            errors="coerce",
+            format="mixed"
+    )
+
+    if "amount" in df.columns:
+        df["amount"] = pd.to_numeric(
+            df["amount"],
+            errors="coerce"
+        ).fillna(0)
+
+    text_columns = [
+        "currency",
+        "dc_indicator",
+        "transaction_code",
+        "reference",
+        "related_account",
+        "ordering_party",
+        "description",
+        "transaction_reference",
+        "account_id",
+        "statement_number",
+        "sequence_number",
+        "source_message_type",
+        "sender",
+        "receiver",
+        "correspondent",
+    ]
+
+    for col in text_columns:
+        if col in df.columns:
+            df[col] = df[col].fillna("").astype(str)
+
     return df
 
-# =========================================================
-# HOME DASHBOARD
-# =========================================================
-def home(request):
-    nostro_file = settings.BASE_DIR / "data" / "nostro_statement_entries.xlsx"
-    ledger_file = settings.BASE_DIR / "data" / "ledger_entries.xlsx"
+
+def load_ledger_data():
+    """Load and clean Ledger data."""
+
+    df = pd.read_excel(LEDGER_FILE)
+
+    for col in ["operating_date", "value_date"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(
+                df[col],
+                errors="coerce",
+                format="mixed"
+        )
+
+        df[col] = df[col].apply(
+            lambda x: x.date() if pd.notna(x) else None
+        )
+
+    for col in ["debit", "credit"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(
+                df[col],
+                errors="coerce"
+            ).fillna(0)
+
+    text_columns = [
+        "account",
+        "reference",
+        "description",
+        "rel_ref",
+    ]
+
+    for col in text_columns:
+        if col in df.columns:
+            df[col] = df[col].fillna("").astype(str)
+
+    return df
+
+
+# ============================================================
+# DISPLAY HELPERS
+# ============================================================
+
+def format_date(value):
+    """Convert a pandas date to a readable string."""
+
+    if pd.isna(value):
+        return ""
 
     try:
-        nostro_df = pd.read_excel(nostro_file)
-        ledger_df = pd.read_excel(ledger_file)
+        return pd.to_datetime(value).strftime("%d-%b-%Y")
     except Exception:
-        nostro_df = pd.DataFrame()
-        ledger_df = pd.DataFrame()
+        return str(value)
 
-    counts = {"Nostro": len(nostro_df), "Ledger": len(ledger_df)}
 
-    context = {
-        "nostro_count": counts["Nostro"],
-        "ledger_count": counts["Ledger"],
-    }
-    return render(request, "home/home.html", context)
+def prepare_dataframe_for_display(df):
+    """Prepare dataframe values for HTML display."""
 
-# =========================================================
-# NOSTROS
-# =========================================================
-def nostros(request):
-    file_path = settings.BASE_DIR / "data" / "nostro_statement_entries.xlsx"
-    try:
-        df = pd.read_excel(file_path)
-    except Exception:
-        df = pd.DataFrame()
-    context = {"columns": df.columns, "data": df.values.tolist()}
-    return render(request, "home/nostros.html", context)
+    display_df = df.copy()
 
-# =========================================================
-# LEDGERS
-# =========================================================
-def ledgers(request):
-    file_path = settings.BASE_DIR / "data" / "ledger_entries.xlsx"
-    try:
-        df = pd.read_excel(file_path)
-    except Exception:
-        df = pd.DataFrame()
-    context = {"columns": df.columns, "data": df.values.tolist()}
-    return render(request, "home/ledgers.html", context)
-
-# =========================================================
-# MATCHING VIEW
-# =========================================================
-def matching(request):
-    nostro_file = settings.BASE_DIR / "data" / "nostro_statement_entries.xlsx"
-    ledger_file = settings.BASE_DIR / "data" / "ledger_entries.xlsx"
-
-    nostro_df = normalize(pd.read_excel(nostro_file))
-    ledger_df = normalize(pd.read_excel(ledger_file))
-
-    print("Nostro columns:", nostro_df.columns)
-    print("Ledger columns:", ledger_df.columns)
-
-    # Ensure status/matching_id exist
-    for df in [nostro_df, ledger_df]:
-        if "status" not in df.columns:
-            df["status"] = "Unmatched"
-        if "matching_id" not in df.columns:
-            df["matching_id"] = ""
-
-    # Manual complete match
-    if request.method == "POST" and "complete_match" in request.POST:
-        nostro_index = int(request.POST.get("nostro_index"))
-        ledger_index = int(request.POST.get("ledger_index"))
-        match_id = "MATCH-" + uuid.uuid4().hex[:8].upper()
-        nostro_df.loc[nostro_index, ["status", "matching_id"]] = ["Matched", match_id]
-        ledger_df.loc[ledger_index, ["status", "matching_id"]] = ["Matched", match_id]
-        nostro_df.to_excel(nostro_file, index=False)
-        ledger_df.to_excel(ledger_file, index=False)
-        return redirect("matching")
-
-    # Auto‑matching
-    for n_index, nostro in nostro_df.iterrows():
-        if str(nostro["status"]).lower() == "matched":
-            continue
-        for l_index, ledger in ledger_df.iterrows():
-            if str(ledger["status"]).lower() == "matched":
-                continue
-            # Amount check (absolute values)
-            try:
-                same_amount = (
-                    abs(abs(float(nostro.get("amount", 0))) -
-                        abs(float(ledger.get("amount", 0)))) < 0.01
-                )
-            except:
-                same_amount = False
-            # Value date tolerance ±2 days
-            try:
-                date_diff = abs(pd.to_datetime(nostro.get("value_date")) -
-                                pd.to_datetime(ledger.get("value_date"))).days
-                date_ok = date_diff <= 2
-            except:
-                date_ok = False
-            # Transaction type rules
-            nostro_type = str(nostro.get("type", "")).upper()
-            ledger_type = str(ledger.get("type", "")).upper()
-            tx_ok = (
-                (nostro_type == "LD" and ledger_type == "SC") or
-                (nostro_type == "LC" and ledger_type == "SD")
+    for col in display_df.columns:
+        if pd.api.types.is_datetime64_any_dtype(
+            display_df[col]
+        ):
+            display_df[col] = display_df[col].dt.strftime(
+                "%d-%b-%Y"
             )
-            if same_amount and date_ok and tx_ok:
-                match_id = "MATCH-" + uuid.uuid4().hex[:8].upper()
-                nostro_df.loc[n_index, ["status", "matching_id"]] = ["Matched", match_id]
-                ledger_df.loc[l_index, ["status", "matching_id"]] = ["Matched", match_id]
-                break
 
-    nostro_df.to_excel(nostro_file, index=False)
-    ledger_df.to_excel(ledger_file, index=False)
+    display_df = display_df.fillna("")
 
-    # Build context lists
-    matched_items, review_matches, unmatched = [], [], []
+    return display_df
 
-    for n_index, nostro in nostro_df.iterrows():
-        if str(nostro["status"]).lower() == "matched":
-            match_id = nostro["matching_id"]
-            ledger_match = ledger_df[ledger_df["matching_id"] == match_id]
-            if not ledger_match.empty:
-                ledger = ledger_match.iloc[0]
-                matched_items.append({
-                    "nostro_id": nostro.get("nostro_id"),
-                    "ledger_id": ledger.get("ledger_id"),
-                    "matching_id": match_id,
-                })
-        else:
-            candidates = []
-            for l_index, ledger in ledger_df.iterrows():
-                if str(ledger["status"]).lower() == "matched":
-                    continue
-                try:
-                    same_amount = (
-                        abs(abs(float(nostro.get("amount", 0))) -
-                            abs(float(ledger.get("amount", 0)))) < 0.01
-                    )
-                except:
-                    same_amount = False
-                try:
-                    date_diff = abs(pd.to_datetime(nostro.get("value_date")) -
-                                    pd.to_datetime(ledger.get("value_date"))).days
-                    date_ok = date_diff <= 2
-                except:
-                    date_ok = False
-                nostro_type = str(nostro.get("type", "")).upper()
-                ledger_type = str(ledger.get("type", "")).upper()
-                tx_ok = (
-                    (nostro_type == "LD" and ledger_type == "SC") or
-                    (nostro_type == "LC" and ledger_type == "SD")
+
+# ============================================================
+# TEXT UTILITIES
+# ============================================================
+
+def normalize_text(value):
+    """Normalize text before comparison."""
+
+    if pd.isna(value):
+        return ""
+
+    value = str(value).upper().strip()
+
+    for char in [",", ".", "/", "-", "_", ":", ";"]:
+        value = value.replace(char, " ")
+
+    value = " ".join(value.split())
+
+    return value
+
+
+def text_similarity(value1, value2):
+    """Return similarity between two text values as percentage."""
+
+    value1 = normalize_text(value1)
+    value2 = normalize_text(value2)
+
+    if not value1 or not value2:
+        return 0
+
+    if value1 == value2:
+        return 100
+
+    return round(
+        SequenceMatcher(
+            None,
+            value1,
+            value2
+        ).ratio() * 100,
+        2
+    )
+
+
+# ============================================================
+# LEDGER DIRECTION
+# ============================================================
+
+def ledger_direction(row):
+    """
+    Determine whether the ledger transaction is a debit or credit.
+
+    Assumption:
+        Credit > 0 → CREDIT
+        Debit > 0  → DEBIT
+    """
+
+    debit = float(row.get("debit", 0) or 0)
+    credit = float(row.get("credit", 0) or 0)
+
+    if credit > 0 and debit == 0:
+        return "CREDIT"
+
+    if debit > 0 and credit == 0:
+        return "DEBIT"
+
+    if credit > debit:
+        return "CREDIT"
+
+    if debit > credit:
+        return "DEBIT"
+
+    return ""
+
+
+# ============================================================
+# MATCHING COMPONENTS
+# ============================================================
+
+def amount_score(nostro_amount, ledger_amount):
+    """Score based on amount similarity."""
+
+    try:
+        nostro_amount = abs(float(nostro_amount))
+        ledger_amount = abs(float(ledger_amount))
+    except (ValueError, TypeError):
+        return 0
+
+    difference = abs(
+        nostro_amount - ledger_amount
+    )
+
+    if round(difference, 2) == 0:
+        return 100
+
+    if difference <= 1:
+        return 95
+
+    if difference <= 5:
+        return 85
+
+    if difference <= max(
+        10,
+        nostro_amount * 0.0001
+    ):
+        return 70
+
+    if difference <= max(
+        25,
+        nostro_amount * 0.0005
+    ):
+        return 40
+
+    return 0
+
+
+def reference_score(nostro_row, ledger_row):
+    """Compare Nostro and Ledger references."""
+
+    nostro_references = [
+        nostro_row.get("reference", ""),
+        nostro_row.get("transaction_reference", ""),
+        nostro_row.get("related_account", ""),
+    ]
+
+    ledger_references = [
+        ledger_row.get("reference", ""),
+        ledger_row.get("rel_ref", ""),
+    ]
+
+    best_score = 0
+
+    for nostro_ref in nostro_references:
+
+        nostro_ref = normalize_text(nostro_ref)
+
+        if not nostro_ref:
+            continue
+
+        for ledger_ref in ledger_references:
+
+            ledger_ref = normalize_text(ledger_ref)
+
+            if not ledger_ref:
+                continue
+
+            if nostro_ref == ledger_ref:
+                best_score = max(
+                    best_score,
+                    100
                 )
-                if same_amount and date_ok and tx_ok:
-                    candidates.append({
-                        "ledger_index": l_index,
-                        "ledger_id": ledger.get("ledger_id"),
-                        "amount": ledger.get("amount"),
-                        "currency": ledger.get("currency"),
-                        "value_date": ledger.get("value_date"),
-                    })
-            if candidates:
-                review_matches.append({
-                    "nostro_index": n_index,
-                    "nostro_id": nostro.get("nostro_id"),
-                    "amount": nostro.get("amount"),
-                    "currency": nostro.get("currency"),
-                    "value_date": nostro.get("value_date"),
-                    "possible_matches": candidates,
-                })
-            else:
-                unmatched.append({
-                    "nostro_index": n_index,
-                    "nostro_id": nostro.get("nostro_id"),
-                    "amount": nostro.get("amount"),
-                    "currency": nostro.get("currency"),
-                    "value_date": nostro.get("value_date"),
-                    "status": nostro.get("status"),
-                })
 
-    print("Matched count:", len(matched_items))
-    print("Review count:", len(review_matches))
-    print("Unmatched count:", len(unmatched))
+            elif (
+                nostro_ref in ledger_ref
+                or ledger_ref in nostro_ref
+            ):
+                best_score = max(
+                    best_score,
+                    90
+                )
+
+            else:
+                similarity = text_similarity(
+                    nostro_ref,
+                    ledger_ref
+                )
+
+                if similarity >= 70:
+                    best_score = max(
+                        best_score,
+                        similarity
+                    )
+
+    return best_score
+
+
+def direction_score(nostro_row, ledger_row):
+    """
+    Compare MT950 D/C indicator with ledger direction.
+
+    Assumption:
+        MT950 C = Ledger CREDIT
+        MT950 D = Ledger DEBIT
+    """
+
+    nostro_dc = normalize_text(
+        nostro_row.get("dc_indicator", "")
+    )
+
+    ledger_dc = ledger_direction(
+        ledger_row
+    )
+
+    if not nostro_dc or not ledger_dc:
+        return 0
+
+    if (
+        nostro_dc.startswith("C")
+        and ledger_dc == "CREDIT"
+    ):
+        return 100
+
+    if (
+        nostro_dc.startswith("D")
+        and ledger_dc == "DEBIT"
+    ):
+        return 100
+
+    return 0
+
+
+def date_score(nostro_date, ledger_date):
+    nostro_date = pd.Timestamp(nostro_date)#Change
+    ledger_date = pd.Timestamp(ledger_date)
+    if pd.isna(nostro_date) or pd.isna(ledger_date):
+        return 0
+
+    # Convert both values to pandas timestamps
+    nostro_date = pd.Timestamp(nostro_date)
+    ledger_date = pd.Timestamp(ledger_date)
+   
+    days = abs((nostro_date - ledger_date).days)
+
+    if days == 0:
+        return 100
+
+    elif days == 1:
+        return 80
+
+    elif days == 2:
+        return 60
+
+    elif days <= 5:
+        return 30
+
+    else:
+        return 0
+
+
+def counterparty_score(nostro_row, ledger_row):
+    """
+    Compare Nostro ordering party/description
+    against Ledger description/account.
+    """
+
+    nostro_values = [
+        nostro_row.get(
+            "ordering_party",
+            ""
+        ),
+        nostro_row.get(
+            "description",
+            ""
+        ),
+    ]
+
+    ledger_values = [
+        ledger_row.get(
+            "description",
+            ""
+        ),
+        ledger_row.get(
+            "account",
+            ""
+        ),
+    ]
+
+    best_score = 0
+
+    for nostro_value in nostro_values:
+
+        nostro_value = normalize_text(
+            nostro_value
+        )
+
+        if not nostro_value:
+            continue
+
+        for ledger_value in ledger_values:
+
+            ledger_value = normalize_text(
+                ledger_value
+            )
+
+            if not ledger_value:
+                continue
+
+            similarity = text_similarity(
+                nostro_value,
+                ledger_value
+            )
+
+            best_score = max(
+                best_score,
+                similarity
+            )
+
+    return best_score
+
+
+def transaction_context_score(
+    nostro_row,
+    ledger_row
+):
+    """
+    Compare transaction context.
+
+    Current Ledger source does not contain
+    MT950 transaction code.
+    """
+
+    nostro_code = normalize_text(
+        nostro_row.get(
+            "transaction_code",
+            ""
+        )
+    )
+
+    nostro_description = normalize_text(
+        nostro_row.get(
+            "description",
+            ""
+        )
+    )
+
+    ledger_description = normalize_text(
+        ledger_row.get(
+            "description",
+            ""
+        )
+    )
+
+    # Interest
+    if "INTEREST" in nostro_description:
+
+        if "INTEREST" in ledger_description:
+            return 100
+
+        return 0
+
+    # NTRF
+    if nostro_code == "NTRF":
+
+        if (
+            "TRANSFER" in ledger_description
+            or "NTRF" in ledger_description
+        ):
+            return 90
+
+    return 0
+
+
+# ============================================================
+# OVERALL MATCH SCORE
+# ============================================================
+
+def calculate_match_score(
+    nostro_row,
+    ledger_row
+):
+    """Calculate weighted reconciliation score."""
+
+    ledger_dc = ledger_direction(
+        ledger_row
+    )
+
+    if ledger_dc == "CREDIT":
+        ledger_amount = ledger_row.get(
+            "credit",
+            0
+        )
+    else:
+        ledger_amount = ledger_row.get(
+            "debit",
+            0
+        )
+
+    scores = {
+
+        "amount": amount_score(
+            nostro_row.get(
+                "amount",
+                0
+            ),
+            ledger_amount
+        ),
+
+        "direction": direction_score(
+            nostro_row,
+            ledger_row
+        ),
+
+        "reference": reference_score(
+            nostro_row,
+            ledger_row
+        ),
+
+        "date": date_score(
+            nostro_row.get(
+                "value_date"
+            ),
+            ledger_row.get(
+                "value_date"
+            )
+        ),
+
+        "counterparty": counterparty_score(
+            nostro_row,
+            ledger_row
+        ),
+
+        "context": transaction_context_score(
+            nostro_row,
+            ledger_row
+        ),
+    }
+
+    total = (
+        scores["amount"] * AMOUNT_WEIGHT
+        + scores["direction"] * DIRECTION_WEIGHT
+        + scores["reference"] * REFERENCE_WEIGHT
+        + scores["date"] * DATE_WEIGHT
+        + scores["counterparty"] * COUNTERPARTY_WEIGHT
+        + scores["context"] * CONTEXT_WEIGHT
+    )
+
+    return round(total, 2), scores
+
+
+# ============================================================
+# MATCH REASON
+# ============================================================
+
+def match_reason(scores):
+
+    reasons = []
+
+    if scores["amount"] >= 95:
+        reasons.append("Exact amount")
+
+    elif scores["amount"] >= 70:
+        reasons.append("Close amount")
+
+    if scores["direction"] == 100:
+        reasons.append("Direction agrees")
+
+    if scores["reference"] >= 90:
+        reasons.append("Reference agrees")
+
+    elif scores["reference"] >= 70:
+        reasons.append("Similar reference")
+
+    if scores["date"] >= 90:
+        reasons.append("Same/next value date")
+
+    elif scores["date"] >= 70:
+        reasons.append("Close value date")
+
+    if scores["counterparty"] >= 80:
+        reasons.append(
+            "Counterparty/description agrees"
+        )
+
+    if scores["context"] >= 90:
+        reasons.append(
+            "Transaction context agrees"
+        )
+
+    if not reasons:
+        return "Weak potential match"
+
+    return ", ".join(reasons)
+
+
+# ============================================================
+# FIND CANDIDATES
+# ============================================================
+
+def find_candidates(
+    nostro_row,
+    ledger_df,
+    reserved_ledger_indices
+):
+    """Find potential Ledger matches."""
+
+    candidates = []
+
+    nostro_amount = abs(
+        float(
+            nostro_row.get(
+                "amount",
+                0
+            ) or 0
+        )
+    )
+
+    nostro_date = nostro_row.get(
+        "value_date"
+    )
+
+    for ledger_index, ledger_row in ledger_df.iterrows():
+
+        if ledger_index in reserved_ledger_indices:
+            continue
+
+        # ----------------------------------------------------
+        # Determine Ledger amount
+        # ----------------------------------------------------
+
+        ledger_direction_value = ledger_direction(
+            ledger_row
+        )
+
+        if ledger_direction_value == "CREDIT":
+
+            ledger_amount = abs(
+                float(
+                    ledger_row.get(
+                        "credit",
+                        0
+                    ) or 0
+                )
+            )
+
+        else:
+
+            ledger_amount = abs(
+                float(
+                    ledger_row.get(
+                        "debit",
+                        0
+                    ) or 0
+                )
+            )
+
+        # ----------------------------------------------------
+        # Amount pre-filter
+        # ----------------------------------------------------
+
+        amount_difference = abs(
+            nostro_amount - ledger_amount
+        )
+
+        amount_tolerance = max(
+            5,
+            nostro_amount * 0.0005
+        )
+
+        if amount_difference > amount_tolerance:
+            continue
+
+        # ----------------------------------------------------
+        # Date pre-filter
+        # ----------------------------------------------------
+
+        ledger_date = ledger_row.get(
+            "value_date"
+        )
+        nostro_date = pd.Timestamp(nostro_date)#change
+        ledger_date = pd.Timestamp(ledger_date)     
+        if (
+            not pd.isna(nostro_date)
+            and not pd.isna(ledger_date)
+        ):
+
+            date_difference = abs(
+                (
+                    nostro_date
+                    - ledger_date
+                ).days
+            )
+
+            if date_difference > 5:
+                continue
+
+        # ----------------------------------------------------
+        # Calculate score
+        # ----------------------------------------------------
+
+        score, breakdown = calculate_match_score(
+            nostro_row,
+            ledger_row
+        )
+
+        if score < CANDIDATE_THRESHOLD:
+            continue
+
+        candidates.append({
+
+            "ledger_index": ledger_index,
+
+            "ledger_id": ledger_row.get(
+                "ledger_id",
+                ledger_index
+            ),
+
+            "amount": ledger_amount,
+
+            "value_date": ledger_row.get(
+                "value_date"
+            ),
+
+            "description": ledger_row.get(
+                "description",
+                ""
+            ),
+
+            "reference": ledger_row.get(
+                "reference",
+                ""
+            ),
+
+            "score": score,
+
+            "score_breakdown": breakdown,
+
+            "reason": match_reason(
+                breakdown
+            ),
+        })
+
+    candidates.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    return candidates
+
+
+# ============================================================
+# HOME / DASHBOARD
+# ============================================================
+
+def home(request):
+
+    nostro_df = load_nostro_data()
+    ledger_df = load_ledger_data()
+
+    nostro_count = len(
+        nostro_df
+    )
+
+    ledger_count = len(
+        ledger_df
+    )
+
+    manual_matches = request.session.get(
+        "manual_matches",
+        {}
+    )
+
+    reconciliation = run_matching(
+        nostro_df,
+        ledger_df,
+        manual_matches
+    )
+
+    matched_count = len(
+        reconciliation["matched_items"]
+    )
+
+    review_count = len(
+        reconciliation["review_matches"]
+    )
+
+    unmatched_count = len(
+        reconciliation["unmatched"]
+    )
+
+    if nostro_count > 0:
+
+        match_rate = round(
+            (
+                matched_count
+                / nostro_count
+            ) * 100,
+            2
+        )
+
+    else:
+
+        match_rate = 0
 
     context = {
-        "matched_items": matched_items[:20],
-        "review_matches": review_matches[:20],
-        "unmatched": unmatched[:20],
+
+        "nostro_count":
+            nostro_count,
+
+        "ledger_count":
+            ledger_count,
+
+        "matched_count":
+            matched_count,
+
+        "review_count":
+            review_count,
+
+        "unmatched_count":
+            unmatched_count,
+
+        "match_rate":
+            match_rate,
     }
-    return render(request, "home/matching.html", context)
 
-# =========================================================
-# DOWNLOAD ENDPOINTS
-# =========================================================
-# DOWNLOAD ENDPOINTS
-# =========================================================
+    return render(
+        request,
+        "home/home.html",
+        context
+    )
+
+
+# ============================================================
+# NOSTRO PAGE
+# ============================================================
+
+def nostros(request):
+
+    df = load_nostro_data()
+
+    nostros = df.to_dict("records")
+
+    return render(
+        request,
+        "home/nostros.html",
+        {
+            "nostros": nostros,
+        }
+    )
+
+
+
+# ============================================================
+# LEDGER PAGE
+# ============================================================
+def ledgers(request):
+    
+    df = load_ledger_data()
+
+    ledgers = df.to_dict("records")
+
+    return render(
+        request,
+        "home/ledgers.html",
+        {
+            "ledgers": ledgers,
+        }
+    )
+
+# ============================================================
+# RUN MATCHING ENGINE
+# ============================================================
+
+def run_matching(
+    nostro_df,
+    ledger_df,
+    manual_matches=None
+):
+
+    if manual_matches is None:
+        manual_matches = {}
+
+    matched_items = []
+    review_matches = []
+    unmatched = []
+
+    reserved_ledger_indices = set()
+
+    manually_matched_nostros = set()
+
+    # --------------------------------------------------------
+    # PROCESS MANUAL MATCHES FIRST
+    # --------------------------------------------------------
+
+    for nostro_index, ledger_index in manual_matches.items():
+
+        try:
+
+            nostro_index = int(
+                nostro_index
+            )
+
+            ledger_index = int(
+                ledger_index
+            )
+
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            continue
+
+        if (
+            nostro_index not in nostro_df.index
+            or ledger_index not in ledger_df.index
+        ):
+            continue
+
+        nostro_row = nostro_df.loc[
+            nostro_index
+        ]
+
+        ledger_row = ledger_df.loc[
+            ledger_index
+        ]
+
+        score, breakdown = calculate_match_score(
+            nostro_row,
+            ledger_row
+        )
+
+        matched_items.append({
+
+            "nostro_index":
+                nostro_index,
+
+            "ledger_index":
+                ledger_index,
+
+            "nostro_id":
+                nostro_row.get(
+                    "nostro_id",
+                    nostro_index
+                ),
+
+            "ledger_id":
+                ledger_row.get(
+                    "ledger_id",
+                    ledger_index
+                ),
+
+            "matching_id":
+                f"MANUAL-{nostro_index:05d}",
+
+            "score":
+                score,
+
+            "reason":
+                "Manually matched",
+        })
+
+        manually_matched_nostros.add(
+            nostro_index
+        )
+
+        reserved_ledger_indices.add(
+            ledger_index
+        )
+
+    # --------------------------------------------------------
+    # AUTOMATIC MATCHING
+    # --------------------------------------------------------
+
+    for nostro_index, nostro_row in nostro_df.iterrows():
+
+        if nostro_index in manually_matched_nostros:
+            continue
+
+        candidates = find_candidates(
+            nostro_row,
+            ledger_df,
+            reserved_ledger_indices
+        )
+
+        # ----------------------------------------------------
+        # NO CANDIDATES
+        # ----------------------------------------------------
+
+        if not candidates:
+
+            unmatched.append({
+
+                "nostro_index":
+                    nostro_index,
+
+                "nostro_id":
+                    nostro_row.get(
+                        "nostro_id",
+                        nostro_index
+                    ),
+
+                "amount":
+                    nostro_row.get(
+                        "amount",
+                        0
+                    ),
+
+                "currency":
+                    nostro_row.get(
+                        "currency",
+                        ""
+                    ),
+
+                "value_date":
+                    format_date(
+                        nostro_row.get(
+                            "value_date"
+                        )
+                    ),
+
+                "dc_indicator":
+                    nostro_row.get(
+                        "dc_indicator",
+                        ""
+                    ),
+
+                "transaction_code":
+                    nostro_row.get(
+                        "transaction_code",
+                        ""
+                    ),
+
+                "ordering_party":
+                    nostro_row.get(
+                        "ordering_party",
+                        ""
+                    ),
+
+                "description":
+                    nostro_row.get(
+                        "description",
+                        ""
+                    ),
+
+                "status":
+                    "Unmatched",
+            })
+
+            continue
+
+        best = candidates[0]
+
+        second_best = (
+            candidates[1]
+            if len(candidates) > 1
+            else None
+        )
+
+        # ----------------------------------------------------
+        # CLEAR WINNER
+        # ----------------------------------------------------
+
+        clear_winner = (
+            second_best is None
+            or (
+                best["score"]
+                - second_best["score"]
+                >= 5
+            )
+        )
+
+        # ----------------------------------------------------
+        # AUTO MATCH
+        # ----------------------------------------------------
+
+        if (
+            best["score"]
+            >= AUTO_MATCH_THRESHOLD
+            and clear_winner
+        ):
+
+            ledger_index = best[
+                "ledger_index"
+            ]
+
+            matched_items.append({
+
+                "nostro_index":
+                    nostro_index,
+
+                "ledger_index":
+                    ledger_index,
+
+                "nostro_id":
+                    nostro_row.get(
+                        "nostro_id",
+                        nostro_index
+                    ),
+
+                "ledger_id":
+                    best["ledger_id"],
+
+                "matching_id":
+                    f"MATCH-{nostro_index:05d}",
+
+                "score":
+                    best["score"],
+
+                "reason":
+                    best["reason"],
+            })
+
+            reserved_ledger_indices.add(
+                ledger_index
+            )
+
+            continue
+
+        # ----------------------------------------------------
+        # MANUAL REVIEW
+        # ----------------------------------------------------
+
+        if best["score"] >= REVIEW_THRESHOLD:
+
+            review_matches.append({
+
+                "nostro_index":
+                    nostro_index,
+
+                "nostro_id":
+                    nostro_row.get(
+                        "nostro_id",
+                        nostro_index
+                    ),
+
+                "amount":
+                    nostro_row.get(
+                        "amount",
+                        0
+                    ),
+
+                "currency":
+                    nostro_row.get(
+                        "currency",
+                        ""
+                    ),
+
+                "value_date":
+                    format_date(
+                        nostro_row.get(
+                            "value_date"
+                        )
+                    ),
+
+                "dc_indicator":
+                    nostro_row.get(
+                        "dc_indicator",
+                        ""
+                    ),
+
+                "transaction_code":
+                    nostro_row.get(
+                        "transaction_code",
+                        ""
+                    ),
+
+                "reference":
+                    nostro_row.get(
+                        "reference",
+                        ""
+                    ),
+
+                "ordering_party":
+                    nostro_row.get(
+                        "ordering_party",
+                        ""
+                    ),
+
+                "description":
+                    nostro_row.get(
+                        "description",
+                        ""
+                    ),
+
+                "possible_matches":
+                    [
+                        {
+                            **candidate,
+                            "value_date":
+                                format_date(
+                                    candidate[
+                                        "value_date"
+                                    ]
+                                ),
+                        }
+                        for candidate
+                        in candidates[:10]
+                    ],
+            })
+
+            continue
+
+        # ----------------------------------------------------
+        # UNMATCHED
+        # ----------------------------------------------------
+
+        unmatched.append({
+
+            "nostro_index":
+                nostro_index,
+
+            "nostro_id":
+                nostro_row.get(
+                    "nostro_id",
+                    nostro_index
+                ),
+
+            "amount":
+                nostro_row.get(
+                    "amount",
+                    0
+                ),
+
+            "currency":
+                nostro_row.get(
+                    "currency",
+                    ""
+                ),
+
+            "value_date":
+                format_date(
+                    nostro_row.get(
+                        "value_date"
+                    )
+                ),
+
+            "dc_indicator":
+                nostro_row.get(
+                    "dc_indicator",
+                    ""
+                ),
+
+            "transaction_code":
+                nostro_row.get(
+                    "transaction_code",
+                    ""
+                ),
+
+            "ordering_party":
+                nostro_row.get(
+                    "ordering_party",
+                    ""
+                ),
+
+            "description":
+                nostro_row.get(
+                    "description",
+                    ""
+                ),
+
+            "status":
+                "Unmatched",
+        })
+
+    return {
+
+        "matched_items":
+            matched_items,
+
+        "review_matches":
+            review_matches,
+
+        "unmatched":
+            unmatched,
+    }
+
+
+# ============================================================
+# MATCHING PAGE
+# ============================================================
+
+def matching(request):
+
+    nostro_df = load_nostro_data()
+    ledger_df = load_ledger_data()
+
+    manual_matches = request.session.get(
+        "manual_matches",
+        {}
+    )
+
+    # --------------------------------------------------------
+    # COMPLETE MANUAL MATCH
+    # --------------------------------------------------------
+
+    if request.method == "POST":
+
+        if "complete_match" in request.POST:
+
+            nostro_index = request.POST.get(
+                "nostro_index"
+            )
+
+            ledger_index = request.POST.get(
+                "ledger_index"
+            )
+
+            if (
+                nostro_index is not None
+                and ledger_index is not None
+            ):
+
+                manual_matches[
+                    str(nostro_index)
+                ] = int(ledger_index)
+
+                request.session[
+                    "manual_matches"
+                ] = manual_matches
+
+                request.session.modified = True
+
+            return redirect(
+                "matching"
+            )
+
+    # --------------------------------------------------------
+    # RUN RECONCILIATION
+    # --------------------------------------------------------
+
+    results = run_matching(
+        nostro_df,
+        ledger_df,
+        manual_matches
+    )
+
+    context = {
+
+        "matched_items":
+            results["matched_items"],
+
+        "review_matches":
+            results["review_matches"],
+
+        "unmatched":
+            results["unmatched"],
+
+        "matched_count":
+            len(results["matched_items"]),
+
+        "review_count":
+            len(results["review_matches"]),
+
+        "unmatched_count":
+            len(results["unmatched"]),
+    }
+
+    return render(
+        request,
+        "home/matching.html",
+        context
+    )
+
+
+# ============================================================
+# SETTINGS PAGE
+# ============================================================
+
+def settings_view(request):
+
+    context = {
+
+        "nostro_file":
+            NOSTRO_FILE.name,
+
+        "ledger_file":
+            LEDGER_FILE.name,
+
+        "auto_threshold":
+            AUTO_MATCH_THRESHOLD,
+
+        "review_threshold":
+            REVIEW_THRESHOLD,
+
+        "candidate_threshold":
+            CANDIDATE_THRESHOLD,
+    }
+
+    return render(
+        request,
+        "home/settings.html",
+        context
+    )
+
+
+# ============================================================
+# EXCEL DOWNLOAD HELPER
+# ============================================================
+
+def dataframe_to_excel_response(
+    df,
+    filename
+):
+
+    output = io.BytesIO()
+
+    with pd.ExcelWriter(
+        output,
+        engine="openpyxl"
+    ) as writer:
+
+        df.to_excel(
+            writer,
+            index=False
+        )
+
+    output.seek(0)
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        )
+    )
+
+    response[
+        "Content-Disposition"
+    ] = (
+        f'attachment; filename="{filename}"'
+    )
+
+    return response
+
+
+# ============================================================
+# DOWNLOAD MATCHED
+# ============================================================
+
 def download_matched(request):
-    file_path = settings.BASE_DIR / "data" / "nostro_statement_entries.xlsx"
-    df = normalize(pd.read_excel(file_path))
-    matched = df[df["status"] == "Matched"]
-    buffer = io.BytesIO()
-    matched.to_excel(buffer, index=False)
-    buffer.seek(0)
-    response = HttpResponse(buffer.getvalue(), content_type="application/vnd.ms-excel")
-    response["Content-Disposition"] = "attachment; filename=matched.xlsx"
-    return response
+
+    nostro_df = load_nostro_data()
+    ledger_df = load_ledger_data()
+
+    manual_matches = request.session.get(
+        "manual_matches",
+        {}
+    )
+
+    results = run_matching(
+        nostro_df,
+        ledger_df,
+        manual_matches
+    )
+
+    rows = []
+
+    for item in results["matched_items"]:
+
+        nostro_row = nostro_df.loc[
+            item["nostro_index"]
+        ]
+
+        ledger_row = ledger_df.loc[
+            item["ledger_index"]
+        ]
+
+        rows.append({
+
+            "matching_id":
+                item["matching_id"],
+
+            "nostro_id":
+                item["nostro_id"],
+
+            "ledger_id":
+                item["ledger_id"],
+
+            "nostro_date":
+                nostro_row.get(
+                    "value_date"
+                ),
+
+            "ledger_date":
+                ledger_row.get(
+                    "value_date"
+                ),
+
+            "amount":
+                nostro_row.get(
+                    "amount"
+                ),
+
+            "currency":
+                nostro_row.get(
+                    "currency"
+                ),
+
+            "dc_indicator":
+                nostro_row.get(
+                    "dc_indicator"
+                ),
+
+            "transaction_code":
+                nostro_row.get(
+                    "transaction_code"
+                ),
+
+            "nostro_reference":
+                nostro_row.get(
+                    "reference"
+                ),
+
+            "ledger_reference":
+                ledger_row.get(
+                    "reference"
+                ),
+
+            "nostro_description":
+                nostro_row.get(
+                    "description"
+                ),
+
+            "ledger_description":
+                ledger_row.get(
+                    "description"
+                ),
+
+            "score":
+                item["score"],
+
+            "reason":
+                item["reason"],
+        })
+
+    return dataframe_to_excel_response(
+        pd.DataFrame(rows),
+        "matched_items.xlsx"
+    )
 
 
-def download_unmatched(request):
-    file_path = settings.BASE_DIR / "data" / "nostro_statement_entries.xlsx"
-    df = normalize(pd.read_excel(file_path))
-    unmatched = df[df["status"] != "Matched"]
-    buffer = io.BytesIO()
-    unmatched.to_excel(buffer, index=False)
-    buffer.seek(0)
-    response = HttpResponse(buffer.getvalue(), content_type="application/vnd.ms-excel")
-    response["Content-Disposition"] = "attachment; filename=unmatched.xlsx"
-    return response
-
+# ============================================================
+# DOWNLOAD REVIEW
+# ============================================================
 
 def download_review(request):
-    file_path = settings.BASE_DIR / "data" / "nostro_statement_entries.xlsx"
-    df = normalize(pd.read_excel(file_path))
-    review = df[df["status"] == "Possible Match"]
-    buffer = io.BytesIO()
-    review.to_excel(buffer, index=False)
-    buffer.seek(0)
-    response = HttpResponse(buffer.getvalue(), content_type="application/vnd.ms-excel")
-    response["Content-Disposition"] = "attachment; filename=review.xlsx"
-    return response
+
+    nostro_df = load_nostro_data()
+    ledger_df = load_ledger_data()
+
+    manual_matches = request.session.get(
+        "manual_matches",
+        {}
+    )
+
+    results = run_matching(
+        nostro_df,
+        ledger_df,
+        manual_matches
+    )
+
+    rows = []
+
+    for item in results["review_matches"]:
+
+        for candidate in item[
+            "possible_matches"
+        ]:
+
+            rows.append({
+
+                "nostro_id":
+                    item["nostro_id"],
+
+                "nostro_amount":
+                    item["amount"],
+
+                "currency":
+                    item["currency"],
+
+                "nostro_date":
+                    item["value_date"],
+
+                "dc_indicator":
+                    item["dc_indicator"],
+
+                "transaction_code":
+                    item["transaction_code"],
+
+                "nostro_reference":
+                    item["reference"],
+
+                "ordering_party":
+                    item["ordering_party"],
+
+                "nostro_description":
+                    item["description"],
+
+                "ledger_id":
+                    candidate["ledger_id"],
+
+                "ledger_amount":
+                    candidate["amount"],
+
+                "ledger_date":
+                    candidate["value_date"],
+
+                "ledger_reference":
+                    candidate["reference"],
+
+                "ledger_description":
+                    candidate["description"],
+
+                "score":
+                    candidate["score"],
+
+                "reason":
+                    candidate["reason"],
+            })
+
+    return dataframe_to_excel_response(
+        pd.DataFrame(rows),
+        "review_matches.xlsx"
+    )
+
+
+# ============================================================
+# DOWNLOAD UNMATCHED
+# ============================================================
+
+def download_unmatched(request):
+
+    nostro_df = load_nostro_data()
+    ledger_df = load_ledger_data()
+
+    manual_matches = request.session.get(
+        "manual_matches",
+        {}
+    )
+
+    results = run_matching(
+        nostro_df,
+        ledger_df,
+        manual_matches
+    )
+
+    rows = []
+
+    for item in results["unmatched"]:
+
+        rows.append({
+
+            "nostro_id":
+                item["nostro_id"],
+
+            "amount":
+                item["amount"],
+
+            "currency":
+                item["currency"],
+
+            "value_date":
+                item["value_date"],
+
+            "dc_indicator":
+                item["dc_indicator"],
+
+            "transaction_code":
+                item["transaction_code"],
+
+            "ordering_party":
+                item["ordering_party"],
+
+            "description":
+                item["description"],
+
+            "status":
+                item["status"],
+        })
+
+    return dataframe_to_excel_response(
+        pd.DataFrame(rows),
+        "unmatched_items.xlsx"
+    )
