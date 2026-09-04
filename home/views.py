@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
 
 import pandas as pd
 import io
@@ -1163,7 +1164,7 @@ def run_matching(
 # ============================================================
 # MATCHING PAGE
 # ============================================================
-
+@csrf_exempt
 def matching(request):
 
     nostro_df = load_nostro_data()

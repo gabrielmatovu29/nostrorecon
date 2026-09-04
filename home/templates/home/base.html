@@ -19,11 +19,40 @@
     <link rel="stylesheet"
           href="{% static 'home/css/style.css' %}">
 
+    <style>
+        /* Remove body margins so sidebar reaches the exact top-left corner */
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        /* Ensure sidebar starts strictly at the top corner */
+        .sidebar {
+            padding-top: 0 !important;
+        }
+
+        /* Direct logo styling starting flush in top-left */
+        .brand-logo-img {
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 0 0 15px 0;
+            padding: 0;
+            object-fit: contain;
+        }
+    </style>
+
 </head>
 
 <body>
 
     <div class="sidebar">
+
+        <!-- Flush Top-Left Logo -->
+        <img src="{% static 'home/images/absa-logo.png' %}" 
+            alt="Absa Bank Uganda" 
+            class="brand-logo-img">
 
         <h2>Navigator</h2>
 
