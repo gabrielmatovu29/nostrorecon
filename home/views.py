@@ -2,6 +2,7 @@ from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required
 
 import pandas as pd
 import io
@@ -743,7 +744,7 @@ def home(request):
 # ============================================================
 # NOSTRO PAGE
 # ============================================================
-
+@login_required
 def nostros(request):
 
     df = load_nostro_data()
@@ -763,6 +764,7 @@ def nostros(request):
 # ============================================================
 # LEDGER PAGE
 # ============================================================
+@login_required
 def ledgers(request):
     
     df = load_ledger_data()
@@ -1164,6 +1166,7 @@ def run_matching(
 # ============================================================
 # MATCHING PAGE
 # ============================================================
+@login_required
 @csrf_exempt
 def matching(request):
 

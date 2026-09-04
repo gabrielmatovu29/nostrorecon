@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.urls import path
-
+from django.contrib.auth import views as auth_views
 from home import views
 
 
@@ -22,6 +22,7 @@ urlpatterns = [
         views.nostros,
         name='nostros'
     ),
+    
 
     path(
         'ledgers/',
@@ -51,6 +52,17 @@ urlpatterns = [
         'download/unmatched/',
         views.download_unmatched,
         name='download_unmatched'
+    ),
+    path(
+        'login/',
+        auth_views.LoginView.as_view(template_name='home/login.html'),
+        name='login'
+    ),
+
+    path(
+        'logout/',
+        auth_views.LogoutView.as_view(next_page='login'),
+        name='logout'
     ),
 
 ]
