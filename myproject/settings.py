@@ -80,7 +80,13 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
-
+# Trust GitHub Codespaces and local dev environments for CSRF
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://*.github.dev",
+    "https://*.app.github.dev",
+]
 
 LANGUAGE_CODE = 'en-us'
 

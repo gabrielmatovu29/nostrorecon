@@ -131,7 +131,7 @@ Matching
     </td>
 
     <td>
-        {{ item.value_date|date:"d-M-Y" }}
+        {{ item.value_date}}
     </td>
 
     <td>
@@ -167,15 +167,7 @@ Matching
 
                 <option value="{{ match.ledger_index }}">
 
-                    {{ match.ledger_id }}
-                    |
-                    {{ match.amount }}
-                    |
-                    {{ match.value_date|date:"d-M-Y" }}
-                    |
-                    Score: {{ match.score }}%
-                    |
-                    {{ match.description }}
+                    {{ match.ledger_id }} | {{ match.amount }} | {{ match.value_date }} | Score: {{ match.score }}% | {{ match.description }}
 
                 </option>
 
@@ -270,7 +262,7 @@ Matching
     <td>{{ item.currency }}</td>
 
     <td>
-        {{ item.value_date|date:"d-M-Y" }}
+        {{ item.value_date}}
     </td>
 
     <td>{{ item.ordering_party }}</td>

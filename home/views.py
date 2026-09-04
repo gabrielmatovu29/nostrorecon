@@ -19,16 +19,21 @@ LEDGER_FILE = settings.BASE_DIR / "data" / "ledgers.xlsx"
 # SYSTEM SETTINGS
 # ============================================================
 
-AUTO_MATCH_THRESHOLD = 90
-REVIEW_THRESHOLD = 60
-CANDIDATE_THRESHOLD = 50
+# ============================================================
+# SYSTEM SETTINGS (RELAXED FOR AUTO-MATCHING)
+# ============================================================
 
-AMOUNT_WEIGHT = 0.40
-DIRECTION_WEIGHT = 0.15
-REFERENCE_WEIGHT = 0.20
-DATE_WEIGHT = 0.10
+AUTO_MATCH_THRESHOLD = 100      # Lowered from 90 to auto-match items scoring 60+
+REVIEW_THRESHOLD = 40          # Lowered from 60
+CANDIDATE_THRESHOLD = 30       # Lowered from 50
+
+# Rebalanced weights prioritizing Amount, Reference, and Direction
+AMOUNT_WEIGHT = 0.45
+DIRECTION_WEIGHT = 0.20
+REFERENCE_WEIGHT = 0.25
 COUNTERPARTY_WEIGHT = 0.10
-CONTEXT_WEIGHT = 0.05
+CONTEXT_WEIGHT = 0.00
+DATE_WEIGHT = 0.00
 
 
 # ============================================================
@@ -504,90 +509,55 @@ def transaction_context_score(
 # OVERALL MATCH SCORE
 # ============================================================
 
-def calculate_match_score(
-    nostro_row,
-    ledger_row
-):
-    """Calculate weighted reconciliation score."""
+def calculate_match_score(nostro_row, ledger_row):
+    """Calculate weighted reconciliation score ignoring date."""
 
-    ledger_dc = ledger_direction(
-        ledger_row
-    )
-
-    if ledger_dc == "CREDIT":
-        ledger_amount = ledger_row.get(
-            "credit",
-            0
-        )
-    else:
-        ledger_amount = ledger_row.get(
-            "debit",
-            0
-        )
+    ledger_dc = ledger_direction(ledger_row)
+    ledger_amount = ledger_row.get("credit", 0) if ledger_dc == "CREDIT" else ledger_row.get("debit", 0)
 
     scores = {
-
         "amount": amount_score(
-            nostro_row.get(
-                "amount",
-                0
-            ),
+            nostro_row.get("amount", 0),
             ledger_amount
         ),
-
         "direction": direction_score(
             nostro_row,
             ledger_row
         ),
-
         "reference": reference_score(
             nostro_row,
             ledger_row
         ),
-
-        "date": date_score(
-            nostro_row.get(
-                "value_date"
-            ),
-            ledger_row.get(
-                "value_date"
-            )
-        ),
-
         "counterparty": counterparty_score(
             nostro_row,
             ledger_row
         ),
-
         "context": transaction_context_score(
             nostro_row,
             ledger_row
         ),
+        "date": 0,
     }
 
     total = (
         scores["amount"] * AMOUNT_WEIGHT
         + scores["direction"] * DIRECTION_WEIGHT
         + scores["reference"] * REFERENCE_WEIGHT
-        + scores["date"] * DATE_WEIGHT
         + scores["counterparty"] * COUNTERPARTY_WEIGHT
         + scores["context"] * CONTEXT_WEIGHT
     )
 
     return round(total, 2), scores
 
-
 # ============================================================
 # MATCH REASON
 # ============================================================
 
 def match_reason(scores):
-
     reasons = []
 
     if scores["amount"] >= 95:
         reasons.append("Exact amount")
-
     elif scores["amount"] >= 70:
         reasons.append("Close amount")
 
@@ -596,31 +566,19 @@ def match_reason(scores):
 
     if scores["reference"] >= 90:
         reasons.append("Reference agrees")
-
     elif scores["reference"] >= 70:
         reasons.append("Similar reference")
 
-    if scores["date"] >= 90:
-        reasons.append("Same/next value date")
-
-    elif scores["date"] >= 70:
-        reasons.append("Close value date")
-
     if scores["counterparty"] >= 80:
-        reasons.append(
-            "Counterparty/description agrees"
-        )
+        reasons.append("Counterparty/description agrees")
 
     if scores["context"] >= 90:
-        reasons.append(
-            "Transaction context agrees"
-        )
+        reasons.append("Transaction context agrees")
 
     if not reasons:
         return "Weak potential match"
 
     return ", ".join(reasons)
-
 
 # ============================================================
 # FIND CANDIDATES
@@ -631,7 +589,7 @@ def find_candidates(
     ledger_df,
     reserved_ledger_indices
 ):
-    """Find potential Ledger matches."""
+    """Find potential Ledger matches without date restrictions."""
 
     candidates = []
 
@@ -644,89 +602,35 @@ def find_candidates(
         )
     )
 
-    nostro_date = nostro_row.get(
-        "value_date"
-    )
-
     for ledger_index, ledger_row in ledger_df.iterrows():
 
         if ledger_index in reserved_ledger_indices:
             continue
 
-        # ----------------------------------------------------
         # Determine Ledger amount
-        # ----------------------------------------------------
-
-        ledger_direction_value = ledger_direction(
-            ledger_row
-        )
+        ledger_direction_value = ledger_direction(ledger_row)
 
         if ledger_direction_value == "CREDIT":
-
             ledger_amount = abs(
                 float(
-                    ledger_row.get(
-                        "credit",
-                        0
-                    ) or 0
+                    ledger_row.get("credit", 0) or 0
                 )
             )
-
         else:
-
             ledger_amount = abs(
                 float(
-                    ledger_row.get(
-                        "debit",
-                        0
-                    ) or 0
+                    ledger_row.get("debit", 0) or 0
                 )
             )
 
-        # ----------------------------------------------------
-        # Amount pre-filter
-        # ----------------------------------------------------
-
-        amount_difference = abs(
-            nostro_amount - ledger_amount
-        )
-
-        amount_tolerance = max(
-            5,
-            nostro_amount * 0.0005
-        )
+        # Amount pre-filter (Allows up to 5% or fixed 500 difference)
+        amount_difference = abs(nostro_amount - ledger_amount)
+        amount_tolerance = max(500, nostro_amount * 0.05)
 
         if amount_difference > amount_tolerance:
             continue
 
-        # ----------------------------------------------------
-        # Date pre-filter
-        # ----------------------------------------------------
-
-        ledger_date = ledger_row.get(
-            "value_date"
-        )
-        nostro_date = pd.Timestamp(nostro_date)#change
-        ledger_date = pd.Timestamp(ledger_date)     
-        if (
-            not pd.isna(nostro_date)
-            and not pd.isna(ledger_date)
-        ):
-
-            date_difference = abs(
-                (
-                    nostro_date
-                    - ledger_date
-                ).days
-            )
-
-            if date_difference > 5:
-                continue
-
-        # ----------------------------------------------------
-        # Calculate score
-        # ----------------------------------------------------
-
+        # Calculate score (Date check completely removed)
         score, breakdown = calculate_match_score(
             nostro_row,
             ledger_row
@@ -736,37 +640,15 @@ def find_candidates(
             continue
 
         candidates.append({
-
             "ledger_index": ledger_index,
-
-            "ledger_id": ledger_row.get(
-                "ledger_id",
-                ledger_index
-            ),
-
+            "ledger_id": ledger_row.get("ledger_id", ledger_index),
             "amount": ledger_amount,
-
-            "value_date": ledger_row.get(
-                "value_date"
-            ),
-
-            "description": ledger_row.get(
-                "description",
-                ""
-            ),
-
-            "reference": ledger_row.get(
-                "reference",
-                ""
-            ),
-
+            "value_date": ledger_row.get("value_date"),
+            "description": ledger_row.get("description", ""),
+            "reference": ledger_row.get("reference", ""),
             "score": score,
-
             "score_breakdown": breakdown,
-
-            "reason": match_reason(
-                breakdown
-            ),
+            "reason": match_reason(breakdown),
         })
 
     candidates.sort(
@@ -775,8 +657,6 @@ def find_candidates(
     )
 
     return candidates
-
-
 # ============================================================
 # HOME / DASHBOARD
 # ============================================================
@@ -1099,51 +979,26 @@ def run_matching(
             )
         )
 
-        # ----------------------------------------------------
-        # AUTO MATCH
+# ----------------------------------------------------
+        # AUTO MATCH (RELAXED)
         # ----------------------------------------------------
 
-        if (
-            best["score"]
-            >= AUTO_MATCH_THRESHOLD
-            and clear_winner
-        ):
+        # Simply check if the top candidate meets the auto-match score threshold
+        if best["score"] >= AUTO_MATCH_THRESHOLD:
 
-            ledger_index = best[
-                "ledger_index"
-            ]
+            ledger_index = best["ledger_index"]
 
             matched_items.append({
-
-                "nostro_index":
-                    nostro_index,
-
-                "ledger_index":
-                    ledger_index,
-
-                "nostro_id":
-                    nostro_row.get(
-                        "nostro_id",
-                        nostro_index
-                    ),
-
-                "ledger_id":
-                    best["ledger_id"],
-
-                "matching_id":
-                    f"MATCH-{nostro_index:05d}",
-
-                "score":
-                    best["score"],
-
-                "reason":
-                    best["reason"],
+                "nostro_index": nostro_index,
+                "ledger_index": ledger_index,
+                "nostro_id": nostro_row.get("nostro_id", nostro_index),
+                "ledger_id": best["ledger_id"],
+                "matching_id": f"MATCH-{nostro_index:05d}",
+                "score": best["score"],
+                "reason": best["reason"],
             })
 
-            reserved_ledger_indices.add(
-                ledger_index
-            )
-
+            reserved_ledger_indices.add(ledger_index)
             continue
 
         # ----------------------------------------------------
